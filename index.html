@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Code Auto-Updater</title>
+    <style>
+        * { box-sizing: border-box; font-family: Tahoma, sans-serif; }
+        body { background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; }
+        
+        /* استایل مودال تنظیمات */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; }
+        .modal-content h3 { margin-top: 0; text-align: center; color: #333; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; font-size: 14px; color: #555; }
+        .input-group input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-family: monospace; direction: ltr; }
+        .btn-group { display: flex; justify-content: space-between; margin-top: 20px; }
+        button { padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-save { background: #007bff; color: white; flex: 1; margin-left: 10px; }
+        .btn-cancel { background: #e0e0e0; color: #333; flex: 1; }
+        
+        /* استایل چت */
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 10px; }
+        .chat-container { flex: 1; background: white; border-radius: 12px; padding: 15px; overflow-y: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px; }
+        .message { padding: 10px 15px; border-radius: 12px; max-width: 85%; line-height: 1.6; font-size: 14px; }
+        .msg-user { background: #007bff; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
+        .msg-ai { background: #f1f1f1; color: #333; align-self: flex-start; border-bottom-left-radius: 0; white-space: pre-wrap; direction: ltr; text-align: left;}
+        .msg-system { background: #ffeeba; color: #856404; align-self: center; font-size: 12px; text-align: center; }
+        
+        /* نوار ورودی */
+        .input-area { display: flex; gap: 10px; margin-top: 10px; }
+        .input-area input { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 8px; outline: none; }
+        .btn-send { background: #28a745; color: white; border-radius: 8px; padding: 0 20px; }
+        .btn-settings { background: transparent; font-size: 20px; padding: 0; }
+    </style>
+</head>
+<body>
+
+    <!-- هدر -->
+    <div class="header">
+        <strong>🤖 دستیار کدنویسی خودمختار</strong>
+        <button class="btn-settings" onclick="openSettings()">⚙️</button>
+    </div>
+
+    <!-- محیط چت -->
+    <div class="chat-container" id="chatBox">
+        <!-- پیام‌ها اینجا قرار می‌گیرند -->
+    </div>
+
+    <!-- نوار ارسال پیام -->
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="مثلاً: کد فایل app.js را بررسی کن و باگ‌هایش را رفع کن..." onkeypress="handleKeyPress(event)">
+        <button class="btn-send" onclick="sendMessage()">ارسال</button>
+    </div>
+
+    <!-- مودال تنظیمات -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h3>⚙️ تنظیمات هوش مصنوعی</h3>
+            
+            <div class="input-group">
+                <label>کلید API دیپ‌سیک (DeepSeek)</label>
+                <input type="password" id="apiKey" placeholder="sk-...">
+            </div>
+            
+            <div class="input-group">
+                <label>Base URL</label>
+                <input type="text" id="baseUrl" value="https://api.deepseek.com/v1">
+            </div>
+            
+            <div class="input-group">
+                <label>نام مدل (Model)</label>
+                <input type="text" id="modelName" value="deepseek-chat">
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #d9534f;">اطلاعات گیت‌هاب (برای تغییر کد)</h4>
+
+            <div class="input-group">
+                <label>توکن گیت‌هاب (GitHub Token)</label>
+                <input type="password" id="githubToken" placeholder="ghp_...">
+            </div>
+
+            <div class="input-group">
+                <label>نام کاربری / نام مخزن (Owner/Repo)</label>
+                <input type="text" id="repoName" placeholder="username/my-repo">
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeSettings()">انصراف</button>
+                <button class="btn-save" onclick="saveSettings()">ذخیره</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ۱. مدیریت تنظیمات و LocalStorage ---
+        let config = {
+            apiKey: '',
+            baseUrl: 'https://api.deepseek.com/v1',
+            model: 'deepseek-chat',
+            githubToken: '',
+            repo: ''
+        };
+
+        function loadSettings() {
+            const saved = localStorage.getItem('ai_agent_config');
+            if (saved) {
+                config = JSON.parse(saved);
+                document.getElementById('apiKey').value = config.apiKey;
+                document.getElementById('baseUrl').value = config.baseUrl;
+                document.getElementById('modelName').value = config.model;
+                document.getElementById('githubToken').value = config.githubToken;
+                document.getElementById('repoName').value = config.repo;
+            }
+        }
+
+        function saveSettings() {
+            config.apiKey = document.getElementById('apiKey').value.trim();
+            config.baseUrl = document.getElementById('baseUrl').value.trim();
+            config.model = document.getElementById('modelName').value.trim();
+            config.githubToken = document.getElementById('githubToken').value.trim();
+            config.repo = document.getElementById('repoName').value.trim();
+            
+            localStorage.setItem('ai_agent_config', JSON.stringify(config));
+            closeSettings();
+            addMessage('system', 'تنظیمات با موفقیت ذخیره شد.');
+        }
+
+        function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+
+        // --- ۲. مدیریت چت و تاریخچه ---
+        let chatHistory = [];
+        
+        function loadChatHistory() {
+            const savedChat = localStorage.getItem('ai_chat_history');
+            if (savedChat) {
+                chatHistory = JSON.parse(savedChat);
+                chatHistory.forEach(msg => {
+                    if(msg.role !== 'system') addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
+                });
+            }
+        }
+
+        function saveChatHistory() {
+            localStorage.setItem('ai_chat_history', JSON.stringify(chatHistory));
+        }
+
+        function addMessage(type, text) {
+            const chatBox = document.getElementById('chatBox');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message msg-${type}`;
+            msgDiv.innerText = text;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // --- ۳. منطق اصلی هوش مصنوعی و گیت‌هاب ---
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (!config.apiKey) {
+                alert('لطفاً ابتدا از بخش تنظیمات، کلید API را وارد کنید.');
+                openSettings();
+                return;
+            }
+
+            // نمایش پیام کاربر
+            addMessage('user', text);
+            chatHistory.push({ role: 'user', content: text });
+            input.value = '';
+
+            // پیام سیستم برای آموزش رفتار به هوش مصنوعی
+            const systemPrompt = `شما یک دستیار برنامه‌نویسی هستید که به مخزن گیت‌هاب متصل است.
+اگر کاربر از شما خواست کدی را تغییر دهید یا فایلی بسازید، شما باید تغییرات را در قالب یک بلوک JSON در انتهای پاسخ خود قرار دهید تا سیستم ما آن را بخواند.
+فرمت دقیق JSON باید به این صورت باشد (داخل سه بک‌تیک):
+\`\`\`json
+{
+  "action": "update_file",
+  "path": "مسیر/فایل/شما.js",
+  "commit_message": "پیام کامیت",
+  "content": "محتوای کامل و جدید فایل به صورت رشته متنی"
+}
+\`\`\`
+اگر نیازی به تغییر فایل نیست، فقط به سوال کاربر پاسخ متنی بدهید.`;
+
+            try {
+                addMessage('ai', 'در حال فکر کردن...');
+                const response = await fetch(`${config.baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${config.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: config.model,
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...chatHistory.slice(-10) // ارسال ۱۰ پیام آخر برای حفظ حافظه
+                        ]
+                    })
+                });
+
+                const data = await response.json();
+                
+                // حذف پیام "در حال فکر کردن"
+                document.getElementById('chatBox').lastChild.remove();
+
+                if (data.choices && data.choices[0]) {
+                    const aiReply = data.choices[0].message.content;
+                    addMessage('ai', aiReply);
+                    chatHistory.push({ role: 'assistant', content: aiReply });
+                    saveChatHistory();
+
+                    // بررسی اینکه آیا هوش مصنوعی درخواست تغییر فایل داده است؟
+                    await checkAndExecuteGithubAction(aiReply);
+                } else {
+                    addMessage('system', 'خطا در دریافت پاسخ از هوش مصنوعی.');
+                }
+
+            } catch (error) {
+                document.getElementById('chatBox').lastChild.remove();
+                addMessage('system', 'خطای شبکه: ' + error.message);
+            }
+        }
+
+        // --- ۴. ارتباط با گیت‌هاب و آپدیت کد ---
+        async function checkAndExecuteGithubAction(aiText) {
+            // جستجوی بلوک JSON در پاسخ هوش مصنوعی
+            const jsonRegex = /```json\s*([\s\S]*?)\s*```/;
+            const match = aiText.match(jsonRegex);
+
+            if (match && match[1]) {
+                try {
+                    const actionData = JSON.parse(match[1]);
+                    
+                    if (actionData.action === 'update_file') {
+                        if (!config.githubToken || !config.repo) {
+                            addMessage('system', '⚠️ هوش مصنوعی درخواست تغییر کد داد، اما توکن گیت‌هاب یا نام مخزن در تنظیمات وارد نشده است!');
+                            return;
+                        }
+
+                        addMessage('system', `⏳ در حال ارسال تغییرات به گیت‌هاب (${actionData.path})...`);
+                        
+                        const success = await updateGithubFile(
+                            config.githubToken, 
+                            config.repo, 
+                            actionData.path, 
+                            actionData.content, 
+                            actionData.commit_message
+                        );
+
+                        if (success) {
+                            addMessage('system', `✅ فایل ${actionData.path} با موفقیت در گیت‌هاب ذخیره شد.`);
+                        } else {
+                            addMessage('system', `❌ خطا در ذخیره فایل در گیت‌هاب.`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("خطا در پارس کردن JSON", e);
+                }
+            }
+        }
+
+        async function updateGithubFile(token, repo, path, content, commitMessage) {
+            const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+            
+            // مرحله ۱: گرفتن SHA فایل (اگر فایل از قبل وجود داشته باشد، گیت‌هاب برای آپدیت نیاز به SHA دارد)
+            let sha = null;
+            try {
+                const getRes = await fetch(apiUrl, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (getRes.ok) {
+                    const getData = await getRes.json();
+                    sha = getData.sha;
+                }
+            } catch (e) {
+                console.log("فایل جدید است یا خطا در خواندن.");
+            }
+
+            // مرحله ۲: آپدیت یا ساخت فایل جدید
+            // محتوای فایل باید Base64 شود
+            const encodedContent = btoa(unescape(encodeURIComponent(content)));
+
+            const body = {
+                message: commitMessage || "Auto-commit by AI Agent",
+                content: encodedContent,
+                branch: "main" // یا master
+            };
+
+            if (sha) body.sha = sha; // اگر فایل وجود دارد، SHA را اضافه می‌کنیم
+
+            try {
+                const res = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                return res.ok;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        // راه‌اندازی اولیه
+        window.onload = () => {
+            loadSettings();
+            loadChatHistory();
+            if (!config.apiKey) openSettings();
+        };
+    </script>
+</body>
+</html>
